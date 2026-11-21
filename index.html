@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#231815">
+<meta name="robots" content="noindex, nofollow">
+<meta name="description" content="魔方雪茄柜 LED 触控面板交互演示：模式切换、灯光三档、自定义模式温湿度调节。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="魔方 · 触控面板演示">
+<meta property="og:description" content="点按体验模式切换、灯光调节与温湿度设置。">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>魔方 · 触控面板演示</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23231815'/%3E%3Cg fill='none' stroke='%23fff' stroke-width='1.5'%3E%3Crect x='8.5' y='8.5' width='6' height='6'/%3E%3Crect x='17.5' y='8.5' width='6' height='6'/%3E%3Crect x='8.5' y='17.5' width='6' height='6'/%3E%3Crect x='17.5' y='17.5' width='6' height='6'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+/* ============================================================
+   魔方雪茄柜 · LED 触控面板演示
+   单文件、零依赖；所有图标 path 与设计稿 魔方UI-01.svg 一致
+   单位系统：--s = 每个布局单位对应的像素；--k = 每个设计稿单位对应的像素
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+html { -webkit-text-size-adjust: 100%; }
+
+:root {
+  /* 横屏：画布 1500 x 620 个布局单位，内容条 1400 单位 */
+  --s: min(0.16129vh, 0.0666667vw);
+  --s: min(0.16129dvh, 0.0666667vw);
+  --k: calc(2.582 * var(--s));      /* 68 / 26.33：设计稿单位 → 像素 */
+  --read: calc(108 * var(--s));     /* 读数主字号（设计稿 45.6 单位） */
+  --mode-fs: calc(27 * var(--s));
+  --hint-fs: calc(18 * var(--s));
+  --lit: 0.71;                       /* 灯光三档：0.4 / 0.7 / 1 */
+  --bg: #231815;
+  --ink: #fff;
+  --dim: #9fa0a0;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "MiSans", "MiSans Medium", "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+/* ---------- 舞台 ---------- */
+.stage {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto auto;
+  place-content: center;
+  justify-items: center;
+  row-gap: calc(30 * var(--s));
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* 随灯光档位变化的暖色环境光 */
+.stage::before {
+  content: "";
+  position: absolute;
+  inset: -15%;
+  background: radial-gradient(50% 55% at 50% 50%,
+              rgba(255, 164, 92, 0.85) 0%,
+              rgba(255, 150, 80, 0.28) 42%,
+              rgba(255, 150, 80, 0) 72%);
+  opacity: calc(var(--lit) * 0.2);
+  transition: opacity 0.55s ease;
+  pointer-events: none;
+}
+
+/* 极轻的颗粒质感 */
+.stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+
+/* ---------- 控制条 ---------- */
+.bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: calc(1400 * var(--s));
+  max-width: 100%;
+  animation: boot 0.8s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+@keyframes boot {
+  from { opacity: 0; transform: translateY(calc(10 * var(--s))); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---------- 左侧：模式 / 灯光 ---------- */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: calc(34 * var(--s));
+  justify-self: start;
+}
+
+.btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: 0;
+  border-radius: 50%;
+  padding: calc(12 * var(--s));
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.14s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.btn:active { transform: scale(0.93); }
+.btn:focus-visible { outline: 2px solid #fff; outline-offset: calc(4 * var(--s)); }
+
+@media (hover: hover) {
+  .btn:hover { background: radial-gradient(circle, rgba(255,255,255,0.07), transparent 68%); }
+}
+
+/* 灯光按钮的暖光，随档位变化 */
+.btn-light { isolation: isolate; }
+.btn-light::before {
+  content: "";
+  position: absolute;
+  inset: calc(-26 * var(--s));
+  border-radius: 50%;
+  background: radial-gradient(circle,
+              rgba(255, 178, 102, 0.55),
+              rgba(255, 178, 102, 0.14) 46%,
+              rgba(255, 178, 102, 0) 68%);
+  opacity: calc(var(--lit) * 0.85);
+  transition: opacity 0.55s ease;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.ic { display: block; overflow: visible; }
+
+.ic-mode { width: calc(24.79 * var(--k)); height: calc(20.02 * var(--k)); }
+.ic-mode path, .ic-mode rect { fill: none; stroke: currentColor; stroke-width: 0.52; }
+.ic-mode polygon { fill: currentColor; stroke: none; }
+
+.ic-light { width: calc(27.73 * var(--k)); height: calc(27.73 * var(--k)); }
+.ic-light .ring { fill: none; stroke: currentColor; stroke-width: 0.52; }
+.ic-light .bulb path, .ic-light .bulb line { fill: none; stroke: currentColor; stroke-width: 0.52; }
+
+/* 箭头宽度跟随读数主字号（设计稿 21.3 / 45.6），保证与数字的比例稳定 */
+.ic-chev { width: calc(0.467 * var(--read)); height: calc(0.255 * var(--read)); }
+.ic-chev polyline { fill: none; stroke: currentColor; stroke-width: 1; stroke-linejoin: miter; }
+
+.ic-wifi { width: calc(11.96 * var(--k)); height: calc(11.14 * var(--k)); }
+.ic-bulb { width: calc(8.01 * var(--k)); height: calc(11.8 * var(--k)); }
+.ic-fault { width: calc(10.48 * var(--k)); height: calc(9.42 * var(--k)); }
+.ic-wifi path, .ic-bulb path, .ic-bulb line, .ic-fault path, .ic-fault line {
+  fill: none; stroke: currentColor; stroke-width: 0.5;
+}
+
+/* ---------- 中间：温湿度 ---------- */
+.readout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  gap: calc(10 * var(--s));
+}
+
+.field {
+  display: flex;
+  align-items: baseline;
+  font-size: var(--read);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+/* 两位数字固定占位，切换数值时读数块不抖动 */
+.field .num { display: inline-block; min-width: 1.02em; text-align: center; font-variant-numeric: tabular-nums; }
+.field .unit { font-size: 0.86em; opacity: 0.9; margin-left: 0.01em; line-height: 1; }
+#humField { margin-left: 0.55em; }
+
+.stepper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(14 * var(--k));   /* 设计稿中上下箭头是两颗独立触控区，中间留空 */
+  transition: opacity 0.22s ease, visibility 0s linear 0s;
+}
+
+/* 非自定义模式：箭头完全隐藏（保留占位，切换模式时数值不位移） */
+.readout[data-locked="true"] .stepper {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.22s ease, visibility 0s linear 0.22s;
+}
+
+.chev {
+  appearance: none;
+  border: 0;
+  border-radius: calc(8 * var(--s));
+  background: transparent;
+  color: var(--ink);
+  padding: calc(2 * var(--s)) calc(4 * var(--s));
+  min-width: 40px;
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  opacity: 0.92;
+  transition: opacity 0.2s ease, transform 0.12s ease;
+}
+
+.chev:hover { opacity: 1; }
+.chev:active { transform: scale(0.88); }
+.chev:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.chev.is-limit { opacity: 0.2; }
+
+/* ---------- 右侧：模式名 + 状态灯 ---------- */
+.status {
+  display: flex;
+  align-items: center;
+  gap: calc(16 * var(--s));
+  justify-self: end;
+}
+
+.mode-name {
+  font-size: var(--mode-fs);
+  line-height: 1;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.94);
+  white-space: nowrap;
+}
+
+.lamps {
+  display: flex;
+  align-items: center;
+  gap: calc(16 * var(--s));
+  margin-left: calc(14 * var(--s));
+}
+
+.lamp--wifi  { opacity: 1; }
+.lamp--bulb  { opacity: calc(0.3 + 0.7 * var(--lit)); transition: opacity 0.5s ease; }
+.lamp--fault { opacity: 0.16; }
+.lamp--fault.is-on { opacity: 1; }
+
+/* ---------- 提示 ---------- */
+.hint {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  height: calc(26 * var(--s));
+  font-size: var(--hint-fs);
+  line-height: 1.3;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.hint.on { opacity: 0.9; }
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- 竖屏 ---------- */
+@media (orientation: portrait) {
+  :root {
+    --s: min(0.1282vh, 0.2vw);
+    --s: min(0.1282dvh, 0.2vw);
+    --k: calc(3.646 * var(--s));
+    --read: calc(132 * var(--s));
+    --mode-fs: calc(28 * var(--s));
+    --hint-fs: calc(20 * var(--s));
+  }
+
+  .stepper { gap: calc(4 * var(--k)); }
+
+  .bar {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-areas: "status" "readout" "controls";
+    justify-items: center;
+    width: calc(440 * var(--s));
+    max-width: 100%;
+    row-gap: calc(38 * var(--s));
+  }
+
+  .status {
+    grid-area: status;
+    justify-self: stretch;
+    justify-content: space-between;
+  }
+
+  .readout {
+    grid-area: readout;
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-areas:
+      "temp st"
+      "hum sh";
+    align-items: center;
+    justify-self: center;
+    column-gap: calc(16 * var(--s));
+    row-gap: calc(36 * var(--s));
+  }
+
+  #tempField   { grid-area: temp; justify-self: start; }
+  #stepperTemp { grid-area: st; justify-self: start; }
+  #humField    { grid-area: hum; justify-self: start; margin-left: 0; }
+  #stepperHum  { grid-area: sh; justify-self: start; }
+
+  .controls {
+    grid-area: controls;
+    justify-self: center;
+    gap: calc(66 * var(--s));
+  }
+
+  .chev { min-width: 44px; min-height: 42px; }
+}
+
+/* ---------- 无障碍：减少动效 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .bar { animation: none; }
+  * { transition-duration: 0.01ms !important; }
+}
+</style>
+</head>
+<body>
+<main class="stage" aria-label="魔方雪茄柜触控面板演示">
+
+  <div class="bar" id="bar">
+
+    <!-- 模式切换 + 灯光切换 -->
+    <div class="controls" role="group" aria-label="控制">
+      <button class="btn btn-mode" id="modeBtn" type="button" aria-label="切换模式">
+        <svg class="ic ic-mode" viewBox="695.14 1465.09 24.79 20.02" aria-hidden="true" focusable="false">
+          <path d="M714.46,1484.41c-5.14,5.14-13.48,5.14-18.62,0-5.14-5.14-5.14-13.48,0-18.62,5.14-5.14,13.48-5.14,18.62,0,1.12,1.12,2,2.4,2.64,3.76"/>
+          <polygon points="714.32 1469.67 718.17 1473.12 719.23 1468.06 714.32 1469.67"/>
+          <rect x="698.21" y="1468.4" width="6.06" height="6.06"/>
+          <rect x="705.88" y="1468.4" width="6.06" height="6.06"/>
+          <rect x="698.21" y="1475.74" width="6.06" height="6.06"/>
+          <rect x="705.88" y="1475.74" width="6.06" height="6.06"/>
+        </svg>
+      </button>
+
+      <button class="btn btn-light" id="lightBtn" type="button" aria-label="切换灯光亮度">
+        <svg class="ic ic-light" viewBox="744.35 1461.24 27.73 27.73" aria-hidden="true" focusable="false">
+          <rect class="ring" x="745.05" y="1461.94" width="26.33" height="26.33" rx="13.17" ry="13.17"/>
+          <g class="bulb">
+            <path d="M763.98,1472.67c0-3.24-2.69-5.84-5.95-5.71-2.94.12-5.34,2.5-5.48,5.44-.09,2.02.86,3.82,2.36,4.91.65.47,1.04,1.22,1.04,2.03v2.35c0,.51.41.92.92.92h2.78c.51,0,.92-.41.92-.92v-2.35c0-.81.4-1.56,1.06-2.04,1.42-1.04,2.35-2.72,2.35-4.62Z"/>
+            <line x1="755.95" y1="1479.95" x2="760.48" y2="1479.95"/>
+            <path d="M758.03,1468.75c-1.97.08-3.58,1.68-3.67,3.65"/>
+          </g>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 温湿度读数 + 箭头 -->
+    <div class="readout" id="readout" data-locked="false" role="group" aria-label="温湿度">
+      <div class="stepper" id="stepperTemp">
+        <button class="chev" id="tempUp" type="button" aria-label="温度加一">
+          <svg class="ic ic-chev" viewBox="831.01 1452.11 21.3 11.63" aria-hidden="true" focusable="false">
+            <polyline points="831.91 1462.67 841.58 1453.01 851.41 1462.84"/>
+          </svg>
+        </button>
+        <button class="chev" id="tempDown" type="button" aria-label="温度减一">
+          <svg class="ic ic-chev" viewBox="831.01 1483.89 21.3 11.63" aria-hidden="true" focusable="false">
+            <polyline points="851.41 1484.95 841.75 1494.62 831.91 1484.79"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="field" id="tempField"><span class="num" id="tempNum">20</span><span class="unit">℃</span></div>
+      <div class="field" id="humField"><span class="num" id="humNum">70</span><span class="unit">%</span></div>
+
+      <div class="stepper" id="stepperHum">
+        <button class="chev" id="humUp" type="button" aria-label="湿度加一">
+          <svg class="ic ic-chev" viewBox="1139.7 1452.11 21.3 11.63" aria-hidden="true" focusable="false">
+            <polyline points="1140.6 1462.67 1150.27 1453.01 1160.1 1462.84"/>
+          </svg>
+        </button>
+        <button class="chev" id="humDown" type="button" aria-label="湿度减一">
+          <svg class="ic ic-chev" viewBox="1139.7 1483.89 21.3 11.63" aria-hidden="true" focusable="false">
+            <polyline points="1160.1 1484.95 1150.43 1494.62 1140.6 1484.79"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 模式名 + WIFI / 灯光 / 报障 -->
+    <div class="status">
+      <span class="mode-name" id="modeName">自定义模式</span>
+      <span class="lamps" aria-hidden="true">
+        <svg class="ic ic-wifi lamp--wifi" viewBox="1296.68 1436.49 11.96 11.14" focusable="false">
+          <path d="M1301.84,1446.01c0-.45.37-.82.82-.82s.82.37.82.82-.37.82-.82.82-.82-.37-.82-.82Z"/>
+          <path d="M1307.84,1438.81c-1.48-.96-3.25-1.52-5.15-1.52h-.03"/>
+          <path d="M1297.48,1438.84c1.5-.98,3.28-1.55,5.21-1.56h.03"/>
+          <path d="M1306.09,1441.23c-1-.59-2.16-.92-3.41-.93h-.02"/>
+          <path d="M1299.23,1441.26c1.01-.6,2.19-.95,3.46-.96h.02"/>
+          <path d="M1304.48,1443.47c-.54-.28-1.15-.44-1.8-.44h-.01"/>
+          <path d="M1300.84,1443.5h0c.55-.29,1.17-.46,1.83-.46h.02"/>
+        </svg>
+        <svg class="ic ic-bulb lamp--bulb" viewBox="1311.68 1436.3 8.01 11.8" focusable="false">
+          <path d="M1318.99,1441.36c0-1.87-1.55-3.38-3.44-3.31-1.7.07-3.09,1.45-3.17,3.15-.05,1.17.5,2.21,1.37,2.84.38.27.6.71.6,1.17v1.36c0,.29.24.53.53.53h1.61c.29,0,.53-.24.53-.53v-1.36c0-.47.23-.9.61-1.18.82-.6,1.36-1.58,1.36-2.67Z"/>
+          <line x1="1314.35" y1="1445.57" x2="1316.97" y2="1445.57"/>
+          <path d="M1315.55,1439.09c-1.14.05-2.07.97-2.13,2.11"/>
+        </svg>
+        <svg class="ic ic-fault lamp--fault" viewBox="1323.46 1438.01 10.48 9.42" focusable="false">
+          <path d="M1328.7,1446.73h-4.06c-.42,0-.68-.45-.48-.82l4.06-7.2c.21-.37.75-.37.96,0l4.06,7.2c.21.37-.06.82-.48.82h-4.06Z"/>
+          <line x1="1328.7" y1="1440.79" x2="1328.7" y2="1443.31"/>
+          <line x1="1328.7" y1="1444.7" x2="1328.7" y2="1445.45"/>
+        </svg>
+      </span>
+    </div>
+
+  </div>
+
+  <p class="hint" id="hint" aria-hidden="true"></p>
+  <p class="sr" id="sr" aria-live="polite"></p>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ====================== 状态 ====================== */
+  var MODES = [
+    { key: 'custom', name: '自定义模式' },
+    { key: 'mellow', name: '醇养模式', temp: 20, hum: 65 },
+    { key: 'wake',   name: '醒茄模式', temp: 20, hum: 75 }
+  ];
+  var LIMIT = { temp: [16, 22], hum: [60, 80] };
+  var LIGHT_NAME = ['', '低', '中', '高'];
+  var LIT = [0, 0.4, 0.7, 1];
+
+  var state = {
+    mi: 0,              // 当前模式索引
+    customTemp: 20,     // 自定义模式记住的值
+    customHum: 70,
+    light: 2,           // 灯光档位 1-3
+    fault: false        // 报障（预留，不在界面暴露）
+  };
+
+  var root = document.documentElement;
+  var el = {
+    readout: document.getElementById('readout'),
+    modeName: document.getElementById('modeName'),
+    tempNum: document.getElementById('tempNum'),
+    humNum: document.getElementById('humNum'),
+    tempField: document.getElementById('tempField'),
+    humField: document.getElementById('humField'),
+    modeBtn: document.getElementById('modeBtn'),
+    lightBtn: document.getElementById('lightBtn'),
+    faultLamp: document.querySelector('.lamp--fault'),
+    hint: document.getElementById('hint'),
+    sr: document.getElementById('sr')
+  };
+  var chev = {
+    tUp: document.getElementById('tempUp'),
+    tDn: document.getElementById('tempDown'),
+    hUp: document.getElementById('humUp'),
+    hDn: document.getElementById('humDown')
+  };
+
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  function motionOK() { return !reduceMotion.matches; }
+
+  var mode = function () { return MODES[state.mi]; };
+  var isCustom = function () { return mode().key === 'custom'; };
+  var tempVal = function () { return isCustom() ? state.customTemp : mode().temp; };
+  var humVal  = function () { return isCustom() ? state.customHum  : mode().hum; };
+
+  /* ====================== 渲染 ====================== */
+  var anims = new WeakMap();
+
+  function flash(node) {
+    if (!motionOK()) return;
+    var prev = anims.get(node);
+    if (prev) prev.cancel();
+    var a = node.animate(
+      [{ opacity: 0.25, transform: 'translateY(0.05em)' }, { opacity: 1, transform: 'none' }],
+      { duration: 240, easing: 'cubic-bezier(0.22,0.8,0.24,1)' }
+    );
+    anims.set(node, a);
+  }
+
+  function pulse(node) {
+    if (!motionOK()) return;
+    var prev = anims.get(node);
+    if (prev) prev.cancel();
+    var a = node.animate(
+      [{ textShadow: '0 0 34px rgba(255,255,255,0.8)' }, { textShadow: '0 0 0 rgba(255,255,255,0)' }],
+      { duration: 520, easing: 'ease-out' }
+    );
+    anims.set(node, a);
+  }
+
+  function pop(node) {
+    if (!motionOK()) return;
+    var prev = anims.get(node);
+    if (prev) prev.cancel();
+    var a = node.animate(
+      [{ transform: 'scale(1)' }, { transform: 'scale(1.07)' }, { transform: 'scale(1)' }],
+      { duration: 300, easing: 'ease-out' }
+    );
+    anims.set(node, a);
+  }
+
+  function shake(node) {
+    if (!motionOK()) return;
+    var prev = anims.get(node);
+    if (prev) prev.cancel();
+    var a = node.animate(
+      [{ transform: 'translateX(0)' }, { transform: 'translateX(-0.04em)' },
+       { transform: 'translateX(0.04em)' }, { transform: 'translateX(0)' }],
+      { duration: 240, easing: 'ease-out' }
+    );
+    anims.set(node, a);
+  }
+
+  function setNum(node, value) {
+    var s = String(value);
+    if (node.textContent !== s) { node.textContent = s; flash(node); }
+  }
+
+  var srTimer = 0;
+  function render() {
+    var m = mode();
+    var locked = m.key !== 'custom';
+    var t = tempVal();
+    var h = humVal();
+
+    if (el.modeName.textContent !== m.name) {
+      el.modeName.textContent = m.name;
+      flash(el.modeName);
+    }
+    setNum(el.tempNum, t);
+    setNum(el.humNum, h);
+
+    el.readout.dataset.locked = locked ? 'true' : 'false';
+
+    chev.tUp.classList.toggle('is-limit', !locked && t >= LIMIT.temp[1]);
+    chev.tDn.classList.toggle('is-limit', !locked && t <= LIMIT.temp[0]);
+    chev.hUp.classList.toggle('is-limit', !locked && h >= LIMIT.hum[1]);
+    chev.hDn.classList.toggle('is-limit', !locked && h <= LIMIT.hum[0]);
+
+    root.style.setProperty('--lit', String(LIT[state.light]));
+    el.faultLamp.classList.toggle('is-on', !!state.fault);
+
+    el.modeBtn.setAttribute('aria-label', '切换模式，当前 ' + m.name);
+    el.lightBtn.setAttribute('aria-label', '灯光亮度' + LIGHT_NAME[state.light] + '，点击切换');
+    chev.tUp.setAttribute('aria-disabled', locked ? 'true' : 'false');
+    chev.tDn.setAttribute('aria-disabled', locked ? 'true' : 'false');
+    chev.hUp.setAttribute('aria-disabled', locked ? 'true' : 'false');
+    chev.hDn.setAttribute('aria-disabled', locked ? 'true' : 'false');
+
+    clearTimeout(srTimer);
+    srTimer = setTimeout(function () {
+      el.sr.textContent = m.name + '，温度 ' + t + ' 摄氏度，湿度 ' + h + '%，灯光' + LIGHT_NAME[state.light] + '档';
+    }, 700);
+  }
+
+  var rafPending = 0;
+  function schedule() {
+    if (rafPending) return;
+    rafPending = requestAnimationFrame(function () {
+      rafPending = 0;
+      render();
+    });
+  }
+
+  /* ====================== 提示 ====================== */
+  var hintTimer = 0;
+  var touched = false;
+
+  function hint(text, ms) {
+    clearTimeout(hintTimer);
+    el.hint.textContent = text;
+    el.hint.classList.add('on');
+    hintTimer = setTimeout(function () { el.hint.classList.remove('on'); }, ms || 1800);
+  }
+
+  function firstTouch() {
+    if (touched) return;
+    touched = true;
+    clearTimeout(hintTimer);
+    el.hint.classList.remove('on');
+  }
+
+  /* ====================== 声音 ====================== */
+  var ac = null;
+  var clickBuf = null;
+  var lastSound = 0;
+
+  function audio() {
+    if (!ac) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      try { ac = new Ctx(); } catch (e) { return null; }
+    }
+    if (ac.state === 'suspended') { ac.resume(); }
+    if (!clickBuf) {
+      var n = Math.max(1, Math.floor(ac.sampleRate * 0.05));
+      clickBuf = ac.createBuffer(1, n, ac.sampleRate);
+      var data = clickBuf.getChannelData(0);
+      for (var i = 0; i < n; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 5);
+      }
+    }
+    return ac;
+  }
+
+  function tick(kind) {
+    var now = performance.now();
+    if (now - lastSound < 60) return;
+    lastSound = now;
+    var ctx = audio();
+    if (!ctx) return;
+
+    var t = ctx.currentTime;
+    var src = ctx.createBufferSource();
+    src.buffer = clickBuf;
+
+    var hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = kind === 'lock' ? 380 : 1500;
+
+    var g = ctx.createGain();
+    var peak = kind === 'lock' ? 0.10 : 0.16;
+    var len = kind === 'lock' ? 0.10 : 0.05;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+
+    src.connect(hp).connect(g).connect(ctx.destination);
+    src.start(t);
+    src.stop(t + 0.14);
+  }
+
+  /* ====================== 交互 ====================== */
+  function nextMode() {
+    firstTouch();
+    state.mi = (state.mi + 1) % MODES.length;
+    schedule();
+    pop(el.modeBtn);
+    tick('tap');
+    if (!isCustom()) hint(mode().name + ' · 温湿度为预设值', 1500);
+  }
+
+  function nextLight() {
+    firstTouch();
+    state.light = (state.light % 3) + 1;
+    schedule();
+    pop(el.lightBtn);
+    tick('tap');
+    hint('亮度：' + LIGHT_NAME[state.light], 1200);
+  }
+
+  function adjust(kind, dir) {
+    firstTouch();
+    var field = kind === 'temp' ? el.tempField : el.humField;
+
+    if (!isCustom()) {
+      hint(mode().name + '不可调整温湿度', 1800);
+      shake(field);
+      tick('lock');
+      return;
+    }
+
+    var lim = LIMIT[kind];
+    var key = kind === 'temp' ? 'customTemp' : 'customHum';
+    var next = Math.min(lim[1], Math.max(lim[0], state[key] + dir));
+
+    if (next === state[key]) {
+      hint((kind === 'temp' ? '温度已到 ' + state[key] + '℃' : '湿度已到 ' + state[key] + '%'), 1400);
+      pulse(field);
+      tick('lock');
+      return;
+    }
+
+    state[key] = next;
+    schedule();
+    pulse(field);
+    tick('tap');
+  }
+
+  el.modeBtn.addEventListener('click', nextMode);
+  el.lightBtn.addEventListener('click', nextLight);
+
+  [['tUp', 'temp', 1], ['tDn', 'temp', -1], ['hUp', 'hum', 1], ['hDn', 'hum', -1]].forEach(function (b) {
+    chev[b[0]].addEventListener('click', function () { adjust(b[1], b[2]); });
+  });
+
+  /* 首次手势解锁音频 */
+  document.addEventListener('pointerdown', function () { audio(); }, { passive: true });
+
+  /* 键盘（演示用，不在界面显示） */
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+
+    if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      e.preventDefault();
+      var dir = k === 'ArrowRight' ? 1 : -1;
+      adjust(e.shiftKey ? 'hum' : 'temp', dir);
+      return;
+    }
+    if (k === 'm' || k === 'M') { e.preventDefault(); nextMode(); return; }
+    if (k === 'l' || k === 'L') { e.preventDefault(); nextLight(); return; }
+    if (k === 'f' || k === 'F') { e.preventDefault(); toggleFullscreen(); return; }
+  });
+
+  function toggleFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+      } else if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  /* ====================== 启动 ====================== */
+  render();
+  hint('点击图标切换模式与灯光', 6000);
+})();
+</script>
+</body>
+</html>
